@@ -10,7 +10,7 @@ Rent Recon is an algorithm-based Chrome extension tool that assists in rental pr
 
 The algorithm determines the suggested fraud risk score based on 5 features:
 
-| Feature | Max Penalty | Details |
+| Feature | Recon Score | Details |
 |---|---|---|
 | **Address Lookup** | −25 | Cross-references poster name against listing agents on record; flags missing addresses, removed/inactive listings, and properties listed for sale instead of rent |
 | **Price Anomaly** | −30 | Compares posted rent against area median and MLS listed rent; escalating penalties for deeper discounts |
@@ -21,20 +21,20 @@ The algorithm determines the suggested fraud risk score based on 5 features:
 ## Architecture
 
 ```
-┌──────────────────────┐       POST /api/v1/analyze       ┌──────────────────────────┐
+┌──────────────────────┐       scrapes listing info       ┌───────────────────────────┐
 │   Chrome Extension   │ ──────────────────────────────▶  │      FastAPI Backend      │
-│                      │                                   │                           │
-│  Content Script      │                                   │  ┌─────────────────────┐  │
-│  ├─ extractor.js     │                                   │  │   Scoring Engine    │  │
-│  ├─ injector.js      │                                   │  └──┬──┬──┬──┬──┬─────┘  │
-│  └─ content.js       │                                   │     │  │  │  │  │        │
-│                      │       analysis results            │     ▼  ▼  ▼  ▼  ▼        │
-│  Background Worker   │ ◀──────────────────────────────── │  NLP │Price│Addr│Img│Vid │
-│  └─ service-worker   │                                   │     │  │  │  │  │        │
-│                      │                                   │     ▼  ▼  ▼  ▼  ▼        │
-│  Popup UI (React)    │                                   │  Gemini  Rentcast  Zillow │
-│  └─ Score + Flags    │                                   │  API     API       API    │
-└──────────────────────┘                                   └──────────────────────────┘
+│                      │                                  │                           │
+│  Content Script      │                                  │  ┌─────────────────────┐  │
+│  ├─ extractor.js     │                                  │  │   Scoring Engine    │  │
+│  ├─ injector.js      │                                  │  └──┬───┬───┬───┬───┬──┘  │
+│  └─ content.js       │                                  │     │   │   │   │   │     │
+│                      │         analysis results         │     ▼   ▼   ▼   ▼   ▼     │
+│  Background Worker   │ ◀─────────────────────────────── │  NLP, Prc, Addr, Img, Vid │
+│  └─ service-worker   │                                  │     │   │   │   │   │     │
+│                      │                                  │     ▼   ▼   ▼   ▼   ▼     │
+│  Popup UI (React)    │                                  │  Gemini  Rentcast  Zillow │
+│  └─ Score + Flags    │                                  │  API     API       API    │
+└──────────────────────┘                                  └───────────────────────────┘
 ```
 
 ## Tech Stack
