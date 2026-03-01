@@ -172,6 +172,8 @@ def _score_price_anomaly(
     elif ratio < 0.90:
         score = 5
         flags.append(f"Rent is slightly below area median ({deviation_pct}% below)")
+    else:
+        flags.append("[+]Rent is within normal market range")
 
     details = f"Area median ({source}): ${median:,.0f}/mo. Listed: ${posted_rent:,.0f}/mo."
     if deviation_pct > 0:
@@ -237,6 +239,14 @@ def _score_nlp(nlp_result: NLPExtractionResult) -> ModuleResult:
         flags.append("No landlord or management company named")
     score += min(missing_score, 3)
 
+    # Positive signals (prefixed with [+] for info severity)
+    if not nlp_result.suspicious_phrases:
+        flags.append("[+]No suspicious language detected")
+    if not nlp_result.payment_apps:
+        flags.append("[+]No sketchy payment methods mentioned")
+    if nlp_result.rent_amount:
+        flags.append("[+]Rent price disclosed upfront")
+
     return ModuleResult(
         score=min(score, 25),
         max_score=25,
@@ -268,25 +278,40 @@ def _score_images(vision_result: VisionAnalysisResult) -> ModuleResult:
         score += 3
         flags.append(f"Only {vision_result.image_count} image(s), unusually few for a rental listing")
 
+    stock_count = 0
+    suspicious_count = 0
+    staging_count = 0
     for assessment in vision_result.assessments:
-        if assessment.watermark_detected:
-            score += 4
-            flags.append(f"Watermark detected in image")
         if assessment.authenticity == "stock_photo":
             score += 4
-            flags.append(f"Image appears to be a stock photo")
+            stock_count += 1
         elif assessment.authenticity == "suspicious":
             score += 2
-            flags.append(f"Image flagged as suspicious")
+            suspicious_count += 1
         if assessment.professional_staging and assessment.location_consistent is False:
             score += 3
-            flags.append("Professionally staged image with inconsistent location")
+            staging_count += 1
+
+    # Consolidate image flags (no duplicates)
+    has_issues = stock_count > 0 or suspicious_count > 0 or staging_count > 0
+    if stock_count > 0:
+        flags.append(f"{stock_count} image(s) appear to be stock photos")
+    if suspicious_count > 0:
+        flags.append(f"{suspicious_count} image(s) flagged as suspicious")
+    if staging_count > 0:
+        flags.append("Professionally staged images with inconsistent location")
+
+    # Positive signals (only if no issues found)
+    if not has_issues and vision_result.assessments:
+        flags.append("[+]Images appear authentic")
+        if vision_result.image_count >= 3:
+            flags.append("[+]Multiple property photos provided")
 
     return ModuleResult(
         score=min(score, 20),
         max_score=20,
         status="completed",
-        details=vision_result.summary or f"Analyzed {vision_result.image_count} image(s)",
+        details=f"Analyzed {vision_result.image_count} image(s)",
         sub_flags=flags,
     )
 
@@ -313,7 +338,10 @@ def _score_video(has_video: bool) -> ModuleResult:
 # ── Evidence collectors ──────────────────────────────────────────────────────
 
 def _collect_flags(modules: ModuleBreakdown) -> list[Flag]:
-    """Collect all flags from all modules into a flat list."""
+    """Collect all flags from all modules into a flat list.
+
+    Flags prefixed with [+] are always treated as positive "info" signals.
+    """
     all_flags = []
     module_map = {
         "address_lookup": modules.address_lookup,
@@ -324,6 +352,15 @@ def _collect_flags(modules: ModuleBreakdown) -> list[Flag]:
     }
     for category, module in module_map.items():
         for flag_text in module.sub_flags:
+            # Positive flags always get "info" severity
+            if flag_text.startswith("[+]"):
+                all_flags.append(Flag(
+                    severity="info",
+                    category=category,
+                    message=flag_text[3:].strip(),
+                ))
+                continue
+
             severity = "info"
             if module.score >= 20:
                 severity = "high"

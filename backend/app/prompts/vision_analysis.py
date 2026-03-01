@@ -23,7 +23,7 @@ For EACH image, evaluate these factors:
 For each image, rate authenticity as: "authentic", "suspicious", or "stock_photo"
 Provide a confidence score from 0.0 to 1.0.
 
-Then provide an overall summary of your findings.
+Then provide a SHORT overall summary (one sentence max, under 80 characters). Keep each image explanation to one short sentence as well.
 
 Respond with a valid JSON object:
 {{

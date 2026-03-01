@@ -18,7 +18,7 @@ async def health_check():
         status="ok",
         version="1.0.0",
         services={
-            "gemini": "configured" if settings.gemini_api_key else "not_configured",
+            "gemini": f"configured ({len([k for k in settings.gemini_api_keys.split(',') if k.strip()])} keys)" if settings.gemini_api_keys else ("configured" if settings.gemini_api_key else "not_configured"),
             "zillow": "configured" if settings.rapidapi_key else "not_configured",
             "rentcast": "configured" if settings.rentcast_api_key else "not_configured",
             "realtor": "configured" if settings.rapidapi_key else "not_configured",

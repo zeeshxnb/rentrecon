@@ -9,13 +9,17 @@ from app.config import get_settings
 from app.models.nlp import NLPExtractionResult, SuspiciousPhrase
 from app.prompts.nlp_extraction import NLP_EXTRACTION_PROMPT
 from app.utils.cache import nlp_cache, cache_key, get_cached, set_cached
+from app.utils.key_rotator import get_rotator, DAILY_REQUEST_CAP
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-def _get_client() -> genai.Client:
-    return genai.Client(api_key=settings.gemini_api_key)
+def _get_client() -> tuple[genai.Client, str]:
+    """Get a Gemini client using the next available rotated key."""
+    rotator = get_rotator()
+    api_key = rotator.get_key()
+    return genai.Client(api_key=api_key), api_key
 
 
 _STREET_TYPES = (
@@ -102,61 +106,79 @@ async def extract_listing_data(post_text: str) -> NLPExtractionResult:
     if cached:
         return cached
 
-    if not settings.gemini_api_key:
-        logger.warning("Gemini API key not configured, using regex fallback")
+    rotator = get_rotator()
+    if rotator.key_count == 0:
+        logger.warning("No Gemini API keys configured, using regex fallback")
         return _regex_fallback(post_text)
 
-    try:
-        client = _get_client()
-        prompt = NLP_EXTRACTION_PROMPT.format(post_text=post_text)
-
-        response = client.models.generate_content(
-            model=settings.gemini_model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.1,
-            ),
-        )
-
-        raw = response.text.strip()
-        # Strip markdown code fences if present
-        if raw.startswith("```"):
-            raw = re.sub(r'^```(?:json)?\s*', '', raw)
-            raw = re.sub(r'\s*```$', '', raw)
-
-        data = json.loads(raw)
-
-        # Build suspicious phrases
-        phrases = []
-        for p in data.get("suspicious_phrases", []):
-            phrases.append(SuspiciousPhrase(
-                phrase=p.get("phrase", ""),
-                category=p.get("category", "unknown"),
-                severity=p.get("severity", "low"),
-            ))
-
-        result = NLPExtractionResult(
-            rent_amount=data.get("rent_amount"),
-            zip_code=data.get("zip_code"),
-            full_address=data.get("full_address"),
-            neighborhood=data.get("neighborhood"),
-            bedrooms=data.get("bedrooms"),
-            bathrooms=data.get("bathrooms"),
-            contact_phone=data.get("contact_phone", []),
-            contact_email=data.get("contact_email", []),
-            payment_apps=data.get("payment_apps", []),
-            suspicious_phrases=phrases,
-            missing_signals=data.get("missing_signals", []),
-            urgency_score=data.get("urgency_score", 0),
-            deposit_pressure_score=data.get("deposit_pressure_score", 0),
-            avoidance_score=data.get("avoidance_score", 0),
-            vagueness_score=data.get("vagueness_score", 0),
-        )
-
-        set_cached(nlp_cache, key, result)
-        return result
-
-    except Exception as e:
-        logger.error(f"Gemini NLP extraction failed: {e}")
+    if not rotator.check_budget():
+        logger.warning("Daily Gemini budget cap reached (%d requests), using regex fallback", DAILY_REQUEST_CAP)
         return _regex_fallback(post_text)
+
+    # Try each key, rotating on rate-limit errors
+    last_error = None
+    for attempt in range(rotator.key_count):
+        try:
+            client, used_key = _get_client()
+            prompt = NLP_EXTRACTION_PROMPT.format(post_text=post_text)
+
+            response = client.models.generate_content(
+                model=settings.gemini_model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.1,
+                ),
+            )
+
+            raw = response.text.strip()
+            # Strip markdown code fences if present
+            if raw.startswith("```"):
+                raw = re.sub(r'^```(?:json)?\s*', '', raw)
+                raw = re.sub(r'\s*```$', '', raw)
+
+            data = json.loads(raw)
+
+            # Build suspicious phrases
+            phrases = []
+            for p in data.get("suspicious_phrases", []):
+                phrases.append(SuspiciousPhrase(
+                    phrase=p.get("phrase", ""),
+                    category=p.get("category", "unknown"),
+                    severity=p.get("severity", "low"),
+                ))
+
+            result = NLPExtractionResult(
+                rent_amount=data.get("rent_amount"),
+                zip_code=data.get("zip_code"),
+                full_address=data.get("full_address"),
+                neighborhood=data.get("neighborhood"),
+                bedrooms=data.get("bedrooms"),
+                bathrooms=data.get("bathrooms"),
+                contact_phone=data.get("contact_phone", []),
+                contact_email=data.get("contact_email", []),
+                payment_apps=data.get("payment_apps", []),
+                suspicious_phrases=phrases,
+                missing_signals=data.get("missing_signals", []),
+                urgency_score=data.get("urgency_score", 0),
+                deposit_pressure_score=data.get("deposit_pressure_score", 0),
+                avoidance_score=data.get("avoidance_score", 0),
+                vagueness_score=data.get("vagueness_score", 0),
+            )
+
+            rotator.record_request()
+            set_cached(nlp_cache, key, result)
+            return result
+
+        except Exception as e:
+            last_error = e
+            err_str = str(e).lower()
+            if "429" in err_str or "rate" in err_str or "quota" in err_str or "resource" in err_str:
+                logger.warning(f"Gemini NLP key rate-limited (attempt {attempt + 1}), rotating: {e}")
+                rotator.mark_rate_limited(used_key)
+                continue
+            logger.error(f"Gemini NLP extraction failed: {e}")
+            break
+
+    logger.error(f"All Gemini keys exhausted for NLP: {last_error}")
+    return _regex_fallback(post_text)

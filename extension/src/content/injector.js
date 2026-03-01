@@ -33,17 +33,19 @@ export function initInjector() {
 
   window.addEventListener("popstate", onNavigate);
 
-  const origPushState = history.pushState;
-  history.pushState = function (...args) {
-    origPushState.apply(this, args);
-    onNavigate();
-  };
-
-  const origReplaceState = history.replaceState;
-  history.replaceState = function (...args) {
-    origReplaceState.apply(this, args);
-    onNavigate();
-  };
+  // Poll for URL changes and missing button -- pushState/replaceState overrides
+  // don't work from the content script's isolated world
+  let lastUrl = location.href;
+  setInterval(() => {
+    if (location.href !== lastUrl) {
+      lastUrl = location.href;
+      cleanup();
+    }
+    // Continuously retry injection if on a listing page with no button
+    if (isMarketplaceListing() && !document.querySelector(`.${CONTAINER_CLASS}`)) {
+      tryInject();
+    }
+  }, 300);
 }
 
 function cleanup() {
@@ -65,22 +67,40 @@ function findAnchorElement() {
   const main = document.querySelector('[role="main"]');
   if (!main) return null;
 
-  // Strategy 1: Find "Unit Details" or "Property Details" heading text
-  // and inject before it (between Messages button and Unit Details)
+  // Strategy 1: Find the "Message" / "Send message" button row and inject after it
+  const buttons = main.querySelectorAll('[role="button"], button');
+  for (const btn of buttons) {
+    const text = (btn.innerText || btn.textContent || "").trim();
+    if (text === "Message" || text === "Send Message" || text === "Send message") {
+      // Walk up to the row container (the div holding Message + bookmark + ... buttons)
+      let row = btn.closest("div");
+      // Walk up a few levels to get the full button row wrapper
+      for (let i = 0; i < 3 && row && row.parentNode; i++) {
+        const parent = row.parentNode;
+        // Stop when the parent contains significantly more than just the button row
+        if (parent.querySelectorAll('[role="button"], button').length > 6) break;
+        row = parent;
+      }
+      // The next sibling after the button row is where we inject before
+      if (row && row.nextElementSibling) return row.nextElementSibling;
+    }
+  }
+
+  // Strategy 2: Find any details section heading and inject before it
   const allSpans = main.querySelectorAll("span, h2, h3, h4");
   for (const el of allSpans) {
     const text = el.innerText.trim();
-    if (text === "Unit details" || text === "Unit Details" ||
+    if (text === "Building details" || text === "Building Details" ||
+        text === "Unit details" || text === "Unit Details" ||
         text === "Property details" || text === "Property Details" ||
         text === "Home details" || text === "Home Details") {
-      // Walk up to the nearest section-level container
       let section = el.closest("div");
       if (section) return section;
       return el;
     }
   }
 
-  // Strategy 2: Find the listing title heading
+  // Strategy 3: Find the listing title heading
   for (const tag of ["h1", "h2"]) {
     for (const h of main.querySelectorAll(tag)) {
       const text = h.innerText.trim();
@@ -90,7 +110,7 @@ function findAnchorElement() {
     }
   }
 
-  // Strategy 3: Fallback to top of main content
+  // Strategy 4: Fallback to top of main content
   if (main.firstElementChild) return main.firstElementChild;
 
   return null;
@@ -162,24 +182,8 @@ function getReasons(data) {
     }
   }
 
-  // Good signals from completed modules -- only genuinely positive results
-  if (data.modules) {
-    for (const key of ["video_presence", "address_lookup", "price_anomaly", "nlp_analysis", "image_analysis"]) {
-      if (modulesWithFlags.has(key)) continue;
-      const mod = data.modules[key];
-      if (!mod || mod.status !== "completed") continue;
-
-      if (key === "video_presence") {
-        // Only show video as good if video was actually found (score < 0 = bonus)
-        if (mod.score < 0) good.push({ text: mod.details, type: "good" });
-        continue;
-      }
-
-      if (mod.score <= 0 && mod.details) {
-        good.push({ text: mod.details, type: "good" });
-      }
-    }
-  }
+  // Green signals now come from "info" severity flags emitted by the backend.
+  // No need to pull from module details anymore.
 
   // Unverified modules -- show as yellow warnings (not gray)
   if (data.modules) {
@@ -262,7 +266,11 @@ function injectContainer(anchorEl) {
 
           if (response && response.success) {
             resultCache.set(cacheKey, response.data);
-            showResults(container, btn, separator, response.data);
+            // Complete the fill animation, then show results
+            btn.classList.add("recon-fill-done");
+            setTimeout(() => {
+              showResults(container, btn, separator, response.data);
+            }, 350);
           } else {
             btn.disabled = false;
             btn.querySelector("span").textContent = "Analyze Listing";
@@ -309,7 +317,8 @@ function showResults(container, btn, separator, data) {
       } else {
         icon = "&#9888;"; cls = "recon-reason-warn";
       }
-      return `<div class="recon-reason ${cls}">${icon} ${r.text}</div>`;
+      const truncated = r.text.length > 80 ? r.text.slice(0, 77) + "..." : r.text;
+      return `<div class="recon-reason ${cls}">${icon} ${truncated}</div>`;
     })
     .join("");
 

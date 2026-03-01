@@ -3,7 +3,7 @@ Extract the following information from the post text. If a field is not present,
 
 REQUIRED EXTRACTIONS:
 1. rent_amount: Monthly rent as a number (no dollar sign). Return null if not stated.
-2. zip_code: 5-digit US zip code. Return null if not present.
+2. zip_code: 5-digit US zip code. If no zip code is explicitly stated but a city and state are mentioned, infer the most common/central zip code for that city (e.g. "Long Beach, CA" → "90802", "Irvine, CA" → "92618"). Only return null if no location is identifiable at all.
 3. full_address: Complete street address if present. Return null if not found.
 4. neighborhood: Neighborhood or area name if mentioned. Return null if not found.
 5. bedrooms: Number of bedrooms as integer. Return null if not stated.

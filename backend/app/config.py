@@ -11,6 +11,7 @@ class Settings(BaseSettings):
 
     # Google Gemini
     gemini_api_key: str = ""
+    gemini_api_keys: str = ""  # Comma-separated keys for rotation
     gemini_model: str = "gemini-2.0-flash"
 
     # RapidAPI (shared key for Zillow + Realtor.com)

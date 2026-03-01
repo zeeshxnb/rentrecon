@@ -62,26 +62,46 @@
 }
 
 .recon-loading {
-  background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+  background: #1e3a5f;
+  position: relative;
+  overflow: hidden;
 }
 
-.recon-loading span::after {
+.recon-loading::before {
   content: "";
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  margin-left: 8px;
-  border: 2px solid transparent;
-  border-top-color: white;
-  border-radius: 50%;
-  animation: recon-spin 0.8s linear infinite;
-  vertical-align: middle;
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  border-radius: 8px;
+  animation: recon-fill 10s ease-out forwards;
 }
 
-@keyframes recon-spin {
-  to {
-    transform: rotate(360deg);
-  }
+.recon-loading.recon-fill-done::before {
+  animation: recon-fill-complete 0.4s ease-out forwards;
+}
+
+.recon-loading span,
+.recon-loading svg {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes recon-fill {
+  0% { width: 0%; }
+  10% { width: 20%; }
+  30% { width: 45%; }
+  55% { width: 65%; }
+  75% { width: 80%; }
+  90% { width: 90%; }
+  100% { width: 95%; }
+}
+
+@keyframes recon-fill-complete {
+  from { width: 95%; }
+  to { width: 100%; }
 }
 
 /* Results box */
