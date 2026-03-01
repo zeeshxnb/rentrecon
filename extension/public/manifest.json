@@ -21,7 +21,7 @@
     {
       "matches": ["https://www.facebook.com/*"],
       "js": ["src/content/content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_end"
     }
   ],
   "background": {

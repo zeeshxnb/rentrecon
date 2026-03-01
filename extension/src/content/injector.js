@@ -10,37 +10,36 @@ import { extractListingData, isMarketplaceListing } from "./extractor.js";
 const CONTAINER_CLASS = "recon-container";
 const BUTTON_CLASS = "recon-analyze-btn";
 const RESULTS_CLASS = "recon-results";
-let debounceTimer = null;
 
 export function initInjector() {
   tryInject();
 
-  const observer = new MutationObserver(() => {
-    if (debounceTimer) return;
-    debounceTimer = setTimeout(() => {
-      debounceTimer = null;
-      if (isMarketplaceListing()) {
-        if (!document.querySelector(`.${CONTAINER_CLASS}`)) tryInject();
-      } else {
-        cleanup();
-      }
-    }, 300);
-  });
+  // React instantly to every DOM change (the checks inside are very cheap)
+  new MutationObserver(() => {
+    if (isMarketplaceListing()) {
+      if (!document.querySelector(`.${CONTAINER_CLASS}`)) tryInject();
+    } else {
+      cleanup();
+    }
+  }).observe(document.body, { childList: true, subtree: true });
 
-  observer.observe(document.body, { childList: true, subtree: true });
-
-  window.addEventListener("popstate", () => {
+  function onNavigate() {
     if (isMarketplaceListing()) tryInject();
     else cleanup();
-  });
+  }
+
+  window.addEventListener("popstate", onNavigate);
 
   const origPushState = history.pushState;
   history.pushState = function (...args) {
     origPushState.apply(this, args);
-    setTimeout(() => {
-      if (isMarketplaceListing()) tryInject();
-      else cleanup();
-    }, 300);
+    onNavigate();
+  };
+
+  const origReplaceState = history.replaceState;
+  history.replaceState = function (...args) {
+    origReplaceState.apply(this, args);
+    onNavigate();
   };
 }
 
@@ -52,34 +51,28 @@ function tryInject() {
   if (!isMarketplaceListing()) return;
   if (document.querySelector(`.${CONTAINER_CLASS}`)) return;
 
-  const titleEl = findTitleElement();
-  if (!titleEl) {
-    setTimeout(tryInject, 500);
-    return;
-  }
+  const anchorEl = findAnchorElement();
+  if (!anchorEl) return; // MutationObserver will call us again when it appears
 
-  injectContainer(titleEl);
+  injectContainer(anchorEl);
 }
 
-function findTitleElement() {
+function findAnchorElement() {
   const main = document.querySelector('[role="main"]');
-  const root = main || document.body;
+  if (!main) return null;
 
-  const headings = root.querySelectorAll("h1");
-  for (const h of headings) {
-    const text = h.innerText.trim();
-    if (text.length > 3 && !text.includes("Marketplace") && !text.includes("Facebook")) {
-      return h;
+  // Prefer the listing title if it's already rendered
+  for (const tag of ["h1", "h2"]) {
+    for (const h of main.querySelectorAll(tag)) {
+      const text = h.innerText.trim();
+      if (text.length > 3 && !text.includes("Marketplace") && !text.includes("Facebook")) {
+        return h;
+      }
     }
   }
 
-  const h2s = root.querySelectorAll("h2");
-  for (const h of h2s) {
-    const text = h.innerText.trim();
-    if (text.length > 3 && !text.includes("Marketplace") && !text.includes("Facebook")) {
-      return h;
-    }
-  }
+  // Title not rendered yet, inject at top of main content instead of waiting
+  if (main.firstElementChild) return main.firstElementChild;
 
   return null;
 }
@@ -198,8 +191,8 @@ function getReasons(data) {
 /**
  * Inject the Rent Recon container above the title, separator below.
  */
-function injectContainer(titleEl) {
-  if (!titleEl.parentNode) return;
+function injectContainer(anchorEl) {
+  if (!anchorEl.parentNode) return;
 
   const container = document.createElement("div");
   container.className = CONTAINER_CLASS;
@@ -259,7 +252,7 @@ function injectContainer(titleEl) {
   });
 
   try {
-    titleEl.parentNode.insertBefore(container, titleEl);
+    anchorEl.parentNode.insertBefore(container, anchorEl);
   } catch (err) {
     console.warn("Rent Recon: could not insert container", err);
   }
