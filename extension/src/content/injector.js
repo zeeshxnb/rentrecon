@@ -19,21 +19,33 @@ export function initInjector() {
     if (debounceTimer) return;
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
-      if (isMarketplaceListing() && !document.querySelector(`.${CONTAINER_CLASS}`)) {
-        tryInject();
+      if (isMarketplaceListing()) {
+        if (!document.querySelector(`.${CONTAINER_CLASS}`)) tryInject();
+      } else {
+        cleanup();
       }
     }, 300);
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
 
-  window.addEventListener("popstate", () => tryInject());
+  window.addEventListener("popstate", () => {
+    if (isMarketplaceListing()) tryInject();
+    else cleanup();
+  });
 
   const origPushState = history.pushState;
   history.pushState = function (...args) {
     origPushState.apply(this, args);
-    setTimeout(tryInject, 300);
+    setTimeout(() => {
+      if (isMarketplaceListing()) tryInject();
+      else cleanup();
+    }, 300);
   };
+}
+
+function cleanup() {
+  document.querySelectorAll(`.${CONTAINER_CLASS}`).forEach(el => el.remove());
 }
 
 function tryInject() {
@@ -138,7 +150,7 @@ function getReasons(data) {
     }
   }
 
-  // Good signals from completed modules — only genuinely positive results
+  // Good signals from completed modules -- only genuinely positive results
   if (data.modules) {
     for (const key of ["video_presence", "address_lookup", "price_anomaly", "nlp_analysis", "image_analysis"]) {
       if (modulesWithFlags.has(key)) continue;
@@ -157,7 +169,7 @@ function getReasons(data) {
     }
   }
 
-  // Unverified modules — show as yellow warnings (not gray)
+  // Unverified modules -- show as yellow warnings (not gray)
   if (data.modules) {
     const skippedNames = {
       address_lookup: "Address could not be verified",
@@ -177,7 +189,7 @@ function getReasons(data) {
   const ordered = [...good, ...warn, ...bad];
 
   if (ordered.length === 0) {
-    ordered.push({ text: "Analysis complete — no strong signals detected", type: "good" });
+    ordered.push({ text: "Analysis complete -- no strong signals detected", type: "good" });
   }
 
   return ordered;

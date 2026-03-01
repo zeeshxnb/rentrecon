@@ -18,15 +18,57 @@ def _get_client() -> genai.Client:
     return genai.Client(api_key=settings.gemini_api_key)
 
 
+_STREET_TYPES = (
+    r'(?:Street|St|Avenue|Ave|Boulevard|Blvd|Drive|Dr|Circle|Cir|Court|Ct|'
+    r'Lane|Ln|Way|Road|Rd|Place|Pl|Parkway|Pkwy|Terrace|Ter|Loop|Trail|Trl|'
+    r'Highway|Hwy|Pike|Pass|Run|Path)'
+)
+
+_ADDRESS_RE = re.compile(
+    r'(\d{1,6}\s+[A-Za-z0-9\s\.]+?\b' + _STREET_TYPES + r'\b'
+    r'(?:\s*,?\s*(?:#|Apt|Suite|Unit|Ste)\.?\s*[\w-]+)?'
+    r'\s*,\s*[A-Za-z][A-Za-z\s]+,\s*[A-Z]{2}'
+    r'(?:\s+\d{5}(?:-\d{4})?)?)',
+    re.IGNORECASE,
+)
+
+
 def _regex_fallback(post_text: str) -> NLPExtractionResult:
     """Fallback extraction using regex when Gemini fails."""
     # Extract rent amount
     rent_match = re.search(r'\$\s*([\d,]+)', post_text)
     rent = float(rent_match.group(1).replace(',', '')) if rent_match else None
 
-    # Extract zip code
-    zip_match = re.search(r'\b(\d{5})\b', post_text)
-    zip_code = zip_match.group(1) if zip_match else None
+    # Extract full street address (e.g. "2380 Benidorm Cir, Corona, CA 92879")
+    address = None
+    addr_match = _ADDRESS_RE.search(post_text)
+    if addr_match:
+        address = addr_match.group(1).strip()
+
+    # Extract zip code — from address first, then standalone
+    zip_code = None
+    if address:
+        zip_in_addr = re.search(r'\b(\d{5})\b', address)
+        if zip_in_addr:
+            zip_code = zip_in_addr.group(1)
+    if not zip_code:
+        zip_match = re.search(r'\b(\d{5})\b', post_text)
+        zip_code = zip_match.group(1) if zip_match else None
+
+    # Extract bedrooms / bathrooms
+    bedrooms = None
+    bathrooms = None
+    bed_match = re.search(r'(\d)[ \t]*(?:bed(?:room)?s?|bd|br)\b', post_text, re.IGNORECASE)
+    if not bed_match:
+        # Facebook Marketplace format: "Bedrooms\n3"
+        bed_match = re.search(r'bed(?:room)?s?\s*[\n:]\s*(\d)', post_text, re.IGNORECASE)
+    if bed_match:
+        bedrooms = int(bed_match.group(1))
+    bath_match = re.search(r'(\d(?:\.\d)?)[ \t]*(?:bath(?:room)?s?|ba)\b', post_text, re.IGNORECASE)
+    if not bath_match:
+        bath_match = re.search(r'bath(?:room)?s?\s*[\n:]\s*(\d(?:\.\d)?)', post_text, re.IGNORECASE)
+    if bath_match:
+        bathrooms = float(bath_match.group(1))
 
     # Extract phone numbers
     phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', post_text)
@@ -43,6 +85,9 @@ def _regex_fallback(post_text: str) -> NLPExtractionResult:
     return NLPExtractionResult(
         rent_amount=rent,
         zip_code=zip_code,
+        full_address=address,
+        bedrooms=bedrooms,
+        bathrooms=bathrooms,
         contact_phone=phones,
         contact_email=emails,
         payment_apps=payment_apps,
