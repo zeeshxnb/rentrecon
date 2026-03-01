@@ -65,7 +65,22 @@ function findAnchorElement() {
   const main = document.querySelector('[role="main"]');
   if (!main) return null;
 
-  // Prefer the listing title if it's already rendered
+  // Strategy 1: Find "Unit Details" or "Property Details" heading text
+  // and inject before it (between Messages button and Unit Details)
+  const allSpans = main.querySelectorAll("span, h2, h3, h4");
+  for (const el of allSpans) {
+    const text = el.innerText.trim();
+    if (text === "Unit details" || text === "Unit Details" ||
+        text === "Property details" || text === "Property Details" ||
+        text === "Home details" || text === "Home Details") {
+      // Walk up to the nearest section-level container
+      let section = el.closest("div");
+      if (section) return section;
+      return el;
+    }
+  }
+
+  // Strategy 2: Find the listing title heading
   for (const tag of ["h1", "h2"]) {
     for (const h of main.querySelectorAll(tag)) {
       const text = h.innerText.trim();
@@ -75,7 +90,7 @@ function findAnchorElement() {
     }
   }
 
-  // Title not rendered yet, inject at top of main content instead of waiting
+  // Strategy 3: Fallback to top of main content
   if (main.firstElementChild) return main.firstElementChild;
 
   return null;
