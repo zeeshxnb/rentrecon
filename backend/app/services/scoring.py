@@ -61,7 +61,7 @@ def _score_address_lookup(
         if rentcast_property.listing_status == "Inactive":
             if rentcast_property.removed_date:
                 score += 10
-                flags.append(f"Rental listing was removed ({rentcast_property.removed_date[:10]}) — may be hijacked")
+                flags.append(f"Rental listing removed ({rentcast_property.removed_date[:10]}), may be hijacked")
 
         # Compare posted rent to MLS listed rent
         if posted_rent and rentcast_property.listed_rent:
@@ -94,7 +94,7 @@ def _score_address_lookup(
     # Zillow/Realtor secondary checks (if they happen to work)
     if zillow_found and zillow_result.listing_status == "FOR_SALE":
         score += 15
-        flags.append("Property listed for SALE on Zillow, not rent — possible hijacked listing")
+        flags.append("Property listed for SALE on Zillow, not rent (possible hijacked listing)")
 
     if realtor_found and realtor_result.listing_status == "for_sale":
         if "for SALE" not in " ".join(flags):
@@ -111,7 +111,7 @@ def _score_address_lookup(
         sources.append("Realtor.com")
     details = f"Property verified on {', '.join(sources)}"
     if rc_found and rentcast_property.property_type:
-        details += f" — {rentcast_property.property_type}"
+        details += f", {rentcast_property.property_type}"
         if rentcast_property.bedrooms:
             details += f", {rentcast_property.bedrooms}bd/{rentcast_property.bathrooms or '?'}ba"
 
@@ -165,10 +165,10 @@ def _score_price_anomaly(
 
     if ratio < 0.65:
         score = 30
-        flags.append(f"Rent is {deviation_pct}% below area median — HIGH anomaly")
+        flags.append(f"Rent is {deviation_pct}% below area median (HIGH anomaly)")
     elif ratio < 0.80:
         score = 15
-        flags.append(f"Rent is {deviation_pct}% below area median — moderate anomaly")
+        flags.append(f"Rent is {deviation_pct}% below area median (moderate anomaly)")
     elif ratio < 0.90:
         score = 5
         flags.append(f"Rent is slightly below area median ({deviation_pct}% below)")
@@ -266,7 +266,7 @@ def _score_images(vision_result: VisionAnalysisResult) -> ModuleResult:
 
     if vision_result.image_count <= 2:
         score += 3
-        flags.append(f"Only {vision_result.image_count} image(s) — unusually few for a rental listing")
+        flags.append(f"Only {vision_result.image_count} image(s), unusually few for a rental listing")
 
     for assessment in vision_result.assessments:
         if assessment.watermark_detected:
@@ -298,7 +298,7 @@ def _score_video(has_video: bool) -> ModuleResult:
             score=-15,
             max_score=-15,
             status="completed",
-            details="Video walkthrough present — significantly reduces fraud likelihood",
+            details="Video walkthrough present, significantly reduces fraud likelihood",
             sub_flags=["Video walkthrough detected (legitimacy bonus)"],
         )
     return ModuleResult(

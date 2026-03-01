@@ -189,7 +189,7 @@ function getReasons(data) {
   const ordered = [...good, ...warn, ...bad];
 
   if (ordered.length === 0) {
-    ordered.push({ text: "Analysis complete -- no strong signals detected", type: "good" });
+    ordered.push({ text: "Analysis complete, no strong signals detected", type: "good" });
   }
 
   return ordered;
