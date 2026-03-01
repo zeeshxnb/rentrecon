@@ -1,0 +1,15 @@
+{
+  "props": [
+    {
+      "zpid": "12345678",
+      "address": "1234 Oak Street, Austin, TX 78704",
+      "price": 2400,
+      "listingStatus": "FOR_RENT",
+      "rentZestimate": 2350,
+      "zestimate": 450000,
+      "propertyType": "SINGLE_FAMILY",
+      "bedrooms": 3,
+      "bathrooms": 2
+    }
+  ]
+}

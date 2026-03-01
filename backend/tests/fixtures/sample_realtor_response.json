@@ -1,0 +1,33 @@
+{
+  "properties": [
+    {
+      "property_id": "R9876543",
+      "status": "for_rent",
+      "list_price": 2400,
+      "location": {
+        "address": {
+          "line": "1234 Oak St",
+          "city": "Austin",
+          "state_code": "TX",
+          "postal_code": "78704"
+        }
+      },
+      "description": {
+        "beds": 3,
+        "baths": 2,
+        "sqft": 1400,
+        "type": "single_family"
+      },
+      "advertisers": [
+        {
+          "name": "Hill Country Property Management",
+          "broker": {
+            "name": "Hill Country Realty"
+          }
+        }
+      ],
+      "prop_type": "single_family",
+      "rdc_web_url": "https://www.realtor.com/realestateandhomes-detail/1234-Oak-St_Austin_TX_78704_R9876543"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "zipCode": "78704",
+  "rentalData": {
+    "averageRent": 2100,
+    "medianRent": 2050,
+    "minRent": 1200,
+    "maxRent": 3500,
+    "averageRentPerSqft": 1.85,
+    "totalListings": 145,
+    "detailedRentalData": {
+      "1Bedroom": {
+        "averageRent": 1450,
+        "medianRent": 1400,
+        "count": 42
+      },
+      "2Bedroom": {
+        "averageRent": 1850,
+        "medianRent": 1800,
+        "count": 55
+      },
+      "3Bedroom": {
+        "averageRent": 2400,
+        "medianRent": 2300,
+        "count": 35
+      }
+    }
+  }
+}

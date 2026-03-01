@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "RentShield - Rental Scam Detector",
+  "version": "1.0.0",
+  "description": "AI-powered rental scam risk detector for Facebook groups",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": [
+    "https://www.facebook.com/*",
+    "https://*.facebook.com/*"
+  ],
+  "action": {
+    "default_popup": "src/popup/index.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.facebook.com/*"],
+      "js": ["src/content/content.js"],
+      "css": ["src/content/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
