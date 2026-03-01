@@ -1,66 +1,85 @@
 /**
- * extractor.js - DOM data extraction for Facebook rental posts.
+ * extractor.js - DOM data extraction for Facebook Marketplace rental listings.
  *
- * Uses structural selectors (role, dir, aria attributes) rather than
- * class names, since Facebook's class names are dynamically generated
- * and change frequently.
+ * Targets /marketplace/item/ pages. Grabs ALL visible text from the listing
+ * so the backend NLP can extract rent, address, ZIP, beds/baths, amenities,
+ * and suspicious phrases. Uses structural selectors (role, dir, aria attrs)
+ * rather than class names.
  */
 
 /**
- * Extract all listing data from a Facebook post element.
+ * Check if we're on a Marketplace item page.
  */
-export function extractPostData(postElement) {
+export function isMarketplaceListing() {
+  return window.location.pathname.includes("/marketplace/item/");
+}
+
+/**
+ * Extract all listing data from the current Marketplace page.
+ */
+export function extractListingData() {
   return {
-    post_text: extractText(postElement),
-    image_urls: extractImageUrls(postElement),
-    has_video: detectVideo(postElement),
-    facebook_poster_name: extractPosterName(postElement),
+    post_text: extractAllText(),
+    image_urls: extractImageUrls(),
+    has_video: detectVideo(),
+    facebook_poster_name: extractSellerName(),
     source_url: window.location.href,
   };
 }
 
 /**
- * Extract post text using multiple strategies.
- * Facebook wraps post text in nested divs with dir="auto".
+ * Extract ALL visible text from the listing page.
+ *
+ * Uses innerText on the main content area to capture everything:
+ * title, price, description, address, Unit Details (beds, baths, sqft,
+ * amenities), Rental Location (city, state, ZIP), Walk Score, etc.
+ * The backend NLP is designed to parse this and extract structured fields.
  */
-function extractText(el) {
-  // Strategy 1: Find all dir="auto" text nodes
-  const textNodes = el.querySelectorAll('[dir="auto"]');
-  const texts = Array.from(textNodes)
-    .map((n) => n.innerText.trim())
-    .filter((t) => t.length > 0);
-
-  // Deduplicate (FB sometimes renders text twice in different containers)
-  const unique = [...new Set(texts)];
-
-  if (unique.length > 0) {
-    return unique.join("\n");
+function extractAllText() {
+  const mainContent = document.querySelector('[role="main"]');
+  if (mainContent) {
+    const fullText = mainContent.innerText;
+    // Cap at 10K chars to keep NLP calls reasonable
+    if (fullText.length > 10000) {
+      return fullText.slice(0, 10000);
+    }
+    return fullText;
   }
 
-  // Strategy 2: Fallback to innerText of the entire post
-  return el.innerText || "";
+  // Fallback: gather text from dir="auto" elements
+  const parts = new Set();
+  const textNodes = document.body.querySelectorAll('[dir="auto"]');
+  for (const node of textNodes) {
+    const text = node.innerText.trim();
+    if (text.length > 2) parts.add(text);
+  }
+  return [...parts].join("\n");
 }
 
 /**
- * Extract image URLs from the post.
- * Facebook hosts images on scontent-*.fbcdn.net CDN.
+ * Extract listing image URLs from the page.
  */
-export function extractImageUrls(el) {
+export function extractImageUrls() {
   const urls = new Set();
 
-  // Strategy 1: Direct img tags with Facebook CDN URLs
-  const imgs = el.querySelectorAll('img[src*="scontent"]');
+  // Marketplace listing images are large scontent images
+  const imgs = document.querySelectorAll('img[src*="scontent"]');
   for (const img of imgs) {
-    if (!isProfileOrEmoji(img.src)) {
-      urls.add(img.src);
+    const src = img.src;
+    const isLarge =
+      (img.naturalWidth > 100 || img.width > 100) &&
+      !isProfileOrEmoji(src);
+
+    if (isLarge) {
+      urls.add(src);
     }
   }
 
-  // Strategy 2: Images inside photo containers
-  const photoImgs = el.querySelectorAll(
-    '[data-visualcompletion] img, [role="img"] img'
+  // Also grab from image carousel / gallery containers
+  const galleryImgs = document.querySelectorAll(
+    '[aria-label*="photo" i] img, [aria-label*="image" i] img, [data-visualcompletion] img'
   );
-  for (const img of photoImgs) {
+  for (const img of galleryImgs) {
     if (img.src && img.src.includes("scontent") && !isProfileOrEmoji(img.src)) {
       urls.add(img.src);
     }
@@ -70,37 +89,61 @@ export function extractImageUrls(el) {
 }
 
 /**
- * Detect if a video element is present in the post.
+ * Detect if a video is part of the actual listing (not nav, ads, stories).
+ * Scoped to the listing's media/content area only.
  */
-export function detectVideo(el) {
-  // Check for HTML5 video element
-  if (el.querySelector("video")) return true;
+export function detectVideo() {
+  const main = document.querySelector('[role="main"]');
+  if (!main) return false;
 
-  // Check for Facebook's video player wrappers
-  if (el.querySelector("[data-video-id]")) return true;
-  if (el.querySelector('[aria-label*="video" i]')) return true;
-  if (el.querySelector('[aria-label*="Video" i]')) return true;
+  // Check for actual video elements within the listing content
+  const videos = main.querySelectorAll("video");
+  for (const v of videos) {
+    // Must have meaningful dimensions (not a hidden/preload element)
+    if (v.offsetWidth > 100 && v.offsetHeight > 100) return true;
+  }
+
+  // Check for Facebook's video player markers within listing area
+  if (main.querySelector("[data-video-id]")) return true;
+
+  // Check for video-specific containers (not nav links like "Watch")
+  // Only match aria-labels that suggest an embedded video player, not navigation
+  const videoEls = main.querySelectorAll('[aria-label*="video" i]');
+  for (const el of videoEls) {
+    // Skip navigation links and small elements
+    if (el.tagName === "A" && el.closest("nav")) continue;
+    if (el.offsetWidth > 200 && el.offsetHeight > 100) return true;
+  }
 
   return false;
 }
 
 /**
- * Extract the poster's name from the post.
+ * Extract the seller's name from the listing page.
  */
-export function extractPosterName(el) {
-  // Strategy 1: Profile name rendering role
-  const profileName = el.querySelector(
-    '[data-ad-rendering-role="profile_name"]'
-  );
-  if (profileName) return profileName.innerText.trim();
+export function extractSellerName() {
+  // Marketplace shows seller info — look for profile links
+  const links = document.querySelectorAll('a[href*="/marketplace/profile/"], a[href*="/user/"]');
+  for (const link of links) {
+    const text = link.innerText.trim();
+    if (text.length > 1 && text.length < 50 && !text.includes("Marketplace")) {
+      return text;
+    }
+  }
 
-  // Strategy 2: Heading links (h2, h3, h4)
-  const headingLink = el.querySelector("h2 a, h3 a, h4 a");
-  if (headingLink) return headingLink.innerText.trim();
-
-  // Strategy 3: Strong tag near the top
-  const strong = el.querySelector("strong");
-  if (strong) return strong.innerText.trim();
+  // Fallback: look for seller section
+  const allText = document.querySelectorAll('[dir="auto"]');
+  let foundSeller = false;
+  for (const el of allText) {
+    const text = el.innerText.trim();
+    if (text === "Seller" || text.includes("Listed by")) {
+      foundSeller = true;
+      continue;
+    }
+    if (foundSeller && text.length > 1 && text.length < 50) {
+      return text;
+    }
+  }
 
   return null;
 }
@@ -116,6 +159,7 @@ function isProfileOrEmoji(url) {
     lower.includes("avatar") ||
     lower.includes("36x36") ||
     lower.includes("40x40") ||
-    lower.includes("32x32")
+    lower.includes("32x32") ||
+    lower.includes("28x28")
   );
 }

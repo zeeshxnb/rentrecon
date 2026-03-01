@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="RentShield API",
+    title="Rent Recon API",
     version="1.0.0",
     description="AI Rental Scam Risk Detector Backend",
     lifespan=lifespan,
@@ -49,12 +49,11 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 # CORS
-origins = settings.allowed_origins.split(",") if settings.allowed_origins != "*" else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["POST", "GET", "OPTIONS"],
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 

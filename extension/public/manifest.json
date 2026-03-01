@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "RentShield - Rental Scam Detector",
+  "name": "Rent Recon - Rental Scam Detector",
   "version": "1.0.0",
-  "description": "AI-powered rental scam risk detector for Facebook groups",
+  "description": "AI-powered rental scam risk detector for Facebook Marketplace",
   "permissions": ["activeTab", "storage"],
   "host_permissions": [
     "https://www.facebook.com/*",
-    "https://*.facebook.com/*"
+    "https://*.facebook.com/*",
+    "http://localhost:8000/*"
   ],
   "action": {
     "default_popup": "src/popup/index.html",
@@ -20,7 +21,6 @@
     {
       "matches": ["https://www.facebook.com/*"],
       "js": ["src/content/content.js"],
-      "css": ["src/content/content.css"],
       "run_at": "document_idle"
     }
   ],

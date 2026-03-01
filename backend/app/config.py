@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     zillow_api_base_url: str = "https://zillow-com1.p.rapidapi.com"
 
     # Realtor.com API via RapidAPI
-    realtor_api_host: str = "realtor16.p.rapidapi.com"
-    realtor_api_base_url: str = "https://realtor16.p.rapidapi.com"
+    realtor_api_host: str = "realtor-com4.p.rapidapi.com"
+    realtor_api_base_url: str = "https://realtor-com4.p.rapidapi.com"
 
     # Rentcast API (direct)
     rentcast_api_key: str = ""

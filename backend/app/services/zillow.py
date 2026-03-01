@@ -36,17 +36,34 @@ async def search_property(address: str, client: httpx.AsyncClient) -> ZillowProp
         return ZillowPropertyResult()
 
     try:
-        # Step 1: Search for property
+        # Step 1: Search for property (supports both /search and /propertyExtendedSearch)
         search_resp = await client.get(
-            f"{settings.zillow_api_base_url}/propertyExtendedSearch",
+            f"{settings.zillow_api_base_url}/search",
             params={"location": address},
             headers=_headers(),
             timeout=8.0,
         )
+
+        # Fallback: some API wrappers use /propertyExtendedSearch
+        if search_resp.status_code == 404:
+            search_resp = await client.get(
+                f"{settings.zillow_api_base_url}/propertyExtendedSearch",
+                params={"location": address},
+                headers=_headers(),
+                timeout=8.0,
+            )
+
         search_resp.raise_for_status()
         search_data = search_resp.json()
 
-        props = search_data.get("props", [])
+        # Handle different response shapes across API providers
+        props = (
+            search_data.get("props")
+            or search_data.get("results")
+            or search_data.get("searchResults", {}).get("listResults")
+            or search_data.get("data")
+            or []
+        )
         if not props:
             result = ZillowPropertyResult(found=False)
             set_cached(property_cache, key, result)
@@ -70,28 +87,33 @@ async def search_property(address: str, client: httpx.AsyncClient) -> ZillowProp
             except Exception as e:
                 logger.warning(f"Zillow property detail fetch failed: {e}")
 
-        # Determine listing status
-        home_status = prop.get("listingStatus") or detail.get("homeStatus", "")
+        # Determine listing status (handle various field names)
+        home_status = (
+            prop.get("listingStatus")
+            or prop.get("statusType")
+            or prop.get("homeStatus")
+            or detail.get("homeStatus", "")
+        )
         listing_status = None
-        if "FOR_RENT" in home_status.upper():
+        if "RENT" in home_status.upper():
             listing_status = "FOR_RENT"
-        elif "FOR_SALE" in home_status.upper():
+        elif "SALE" in home_status.upper():
             listing_status = "FOR_SALE"
         else:
             listing_status = "OFF_MARKET"
 
         result = ZillowPropertyResult(
             zpid=zpid,
-            address=prop.get("address"),
+            address=prop.get("address") or prop.get("streetAddress"),
             listing_status=listing_status,
-            listed_price=prop.get("price"),
+            listed_price=prop.get("price") or prop.get("unformattedPrice"),
             rent_zestimate=detail.get("rentZestimate") or prop.get("rentZestimate"),
             zestimate=detail.get("zestimate") or prop.get("zestimate"),
             agent_name=detail.get("attributionInfo", {}).get("agentName"),
             broker_name=detail.get("attributionInfo", {}).get("brokerName"),
-            property_type=prop.get("propertyType"),
-            bedrooms=prop.get("bedrooms"),
-            bathrooms=prop.get("bathrooms"),
+            property_type=prop.get("propertyType") or prop.get("homeType"),
+            bedrooms=prop.get("bedrooms") or prop.get("beds"),
+            bathrooms=prop.get("bathrooms") or prop.get("baths"),
             year_built=detail.get("yearBuilt"),
             zillow_url=f"https://www.zillow.com/homedetails/{zpid}_zpid/" if zpid else None,
             found=True,
@@ -125,8 +147,8 @@ async def get_rent_estimate(address: str, zip_code: str | None, client: httpx.As
         params = {}
         if address:
             params["propertyAddress"] = address
+            params["address"] = address
         elif zip_code:
-            # Fall back to a search in the zip area
             params["location"] = zip_code
 
         resp = await client.get(
@@ -135,11 +157,21 @@ async def get_rent_estimate(address: str, zip_code: str | None, client: httpx.As
             headers=_headers(),
             timeout=8.0,
         )
+
+        # Fallback: some providers use /rent_estimate
+        if resp.status_code == 404:
+            resp = await client.get(
+                f"{settings.zillow_api_base_url}/rent_estimate",
+                params=params,
+                headers=_headers(),
+                timeout=8.0,
+            )
+
         resp.raise_for_status()
         data = resp.json()
 
         result = ZillowRentEstimate(
-            rent_estimate=data.get("rent"),
+            rent_estimate=data.get("rent") or data.get("rentZestimate"),
             rent_range_low=data.get("rentRangeLow"),
             rent_range_high=data.get("rentRangeHigh"),
             zip_code=zip_code,

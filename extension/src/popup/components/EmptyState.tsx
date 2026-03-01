@@ -10,17 +10,13 @@ export default function EmptyState() {
           stroke="currentColor"
           viewBox="0 0 24 24"
         >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"
-          />
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
         </svg>
       </div>
-      <h2 className="text-lg font-semibold text-gray-700">RentShield</h2>
+      <h2 className="text-lg font-semibold text-gray-700">Rent Recon</h2>
       <p className="text-sm text-gray-400 mt-2 text-center leading-relaxed">
-        Navigate to a rental listing in a Facebook group and click the{" "}
+        Navigate to a Facebook Marketplace rental listing and click the{" "}
         <span className="font-medium text-blue-600">Analyze Listing</span>{" "}
         button to check for scam indicators.
       </p>

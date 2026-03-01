@@ -23,14 +23,10 @@ export default function App() {
           stroke="currentColor"
           viewBox="0 0 24 24"
         >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"
-          />
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
         </svg>
-        <h1 className="text-base font-bold text-gray-800">RentShield</h1>
+        <h1 className="text-base font-bold text-gray-800">Rent Recon</h1>
         {result && (
           <span className="ml-auto text-[10px] text-gray-400">
             {result.processing_time_ms}ms

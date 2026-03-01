@@ -16,19 +16,20 @@ from app.api.schemas import (
 from app.models.nlp import NLPExtractionResult
 from app.models.vision import VisionAnalysisResult
 from app.models.zillow import ZillowPropertyResult
-from app.models.rentcast import RentcastMarketData
+from app.models.rentcast import RentcastMarketData, RentcastPropertyResult
 from app.models.realtor import RealtorPropertyResult
 from app.services import gemini_nlp, gemini_vision, zillow, rentcast, realtor
 from app.utils.normalizers import name_match
 
 logger = logging.getLogger(__name__)
 
-DISCLAIMER = "RentShield is advisory. Always verify listings independently before sending any payment."
+DISCLAIMER = "Rent Recon is advisory. Always verify listings independently before sending any payment."
 
 
 # ── Sub-scorers ──────────────────────────────────────────────────────────────
 
 def _score_address_lookup(
+    rentcast_property: RentcastPropertyResult,
     zillow_result: ZillowPropertyResult,
     realtor_result: RealtorPropertyResult,
     posted_rent: float | None,
@@ -38,49 +39,44 @@ def _score_address_lookup(
     score = 0
     flags = []
 
+    # Primary source: Rentcast property data
+    rc_found = rentcast_property.found
     zillow_found = zillow_result.found
     realtor_found = realtor_result.found
 
-    if not zillow_found and not realtor_found:
-        if poster_name:  # Address was provided but nothing found
+    if not rc_found and not zillow_found and not realtor_found:
+        if poster_name:
             score += 10
             flags.append("No verified listing found for the claimed address")
         return ModuleResult(
             score=min(score, 25),
             max_score=25,
             status="completed",
-            details="No listing found on Zillow or Realtor.com" if score > 0 else "Address lookup completed",
+            details="Property not found in any database" if score > 0 else "Address lookup completed",
             sub_flags=flags,
         )
 
-    # Check listing status
-    if zillow_found and zillow_result.listing_status == "FOR_SALE":
-        score += 15
-        flags.append("Property is listed for SALE, not rent — possible hijacked listing")
+    # Rentcast: check rental listing status
+    if rc_found and rentcast_property.listing_status:
+        if rentcast_property.listing_status == "Inactive":
+            if rentcast_property.removed_date:
+                score += 10
+                flags.append(f"Rental listing was removed ({rentcast_property.removed_date[:10]}) — may be hijacked")
 
-    if realtor_found and realtor_result.listing_status == "for_sale":
-        if "for SALE" not in " ".join(flags):
-            score += 15
-            flags.append("Property listed for sale on Realtor.com, not for rent")
-
-    # Price comparison
-    if posted_rent and zillow_found and zillow_result.listed_price:
-        if zillow_result.listing_status == "FOR_RENT":
-            ratio = posted_rent / zillow_result.listed_price
+        # Compare posted rent to MLS listed rent
+        if posted_rent and rentcast_property.listed_rent:
+            ratio = posted_rent / rentcast_property.listed_rent
             if ratio < 0.70:
                 score += 20
-                flags.append(f"Posted rent is {int((1 - ratio) * 100)}% below Zillow listing price")
+                flags.append(f"Posted rent ${posted_rent:,.0f} is {int((1 - ratio) * 100)}% below MLS listing (${rentcast_property.listed_rent:,.0f})")
+            elif ratio < 0.85:
+                score += 10
+                flags.append(f"Posted rent ${posted_rent:,.0f} is {int((1 - ratio) * 100)}% below MLS listing (${rentcast_property.listed_rent:,.0f})")
 
-    if posted_rent and realtor_found and realtor_result.listed_price:
-        if realtor_result.listing_status == "for_rent":
-            ratio = posted_rent / realtor_result.listed_price
-            if ratio < 0.70 and "below Zillow" not in " ".join(flags):
-                score += 15
-                flags.append(f"Posted rent is {int((1 - ratio) * 100)}% below Realtor.com listing price")
-
-    # Poster vs agent name mismatch
+    # Poster vs listing agent name mismatch
     if poster_name:
         agent_names = [
+            rentcast_property.agent_name,
             zillow_result.agent_name,
             zillow_result.broker_name,
             realtor_result.agent_name,
@@ -89,24 +85,41 @@ def _score_address_lookup(
         matched = any(name_match(poster_name, n) for n in agent_names if n)
         if matched:
             score -= 5
-            flags.append("Poster name matches listing agent/owner (good sign)")
+            flags.append("Poster name matches listing agent (good sign)")
         elif any(n for n in agent_names if n):
             score += 5
-            flags.append("Poster name does NOT match listing agent/owner")
+            agent = next((n for n in agent_names if n), "")
+            flags.append(f"Poster name does NOT match listing agent ({agent})")
 
-    # Cross-platform inconsistency
-    if zillow_found and not realtor_found:
-        score += 5
-        flags.append("Listing found on Zillow but not on Realtor.com")
-    elif realtor_found and not zillow_found:
-        score += 5
-        flags.append("Listing found on Realtor.com but not on Zillow")
+    # Zillow/Realtor secondary checks (if they happen to work)
+    if zillow_found and zillow_result.listing_status == "FOR_SALE":
+        score += 15
+        flags.append("Property listed for SALE on Zillow, not rent — possible hijacked listing")
+
+    if realtor_found and realtor_result.listing_status == "for_sale":
+        if "for SALE" not in " ".join(flags):
+            score += 15
+            flags.append("Property listed for sale on Realtor.com, not rent")
+
+    # Build details summary
+    sources = []
+    if rc_found:
+        sources.append("Rentcast")
+    if zillow_found:
+        sources.append("Zillow")
+    if realtor_found:
+        sources.append("Realtor.com")
+    details = f"Property verified on {', '.join(sources)}"
+    if rc_found and rentcast_property.property_type:
+        details += f" — {rentcast_property.property_type}"
+        if rentcast_property.bedrooms:
+            details += f", {rentcast_property.bedrooms}bd/{rentcast_property.bathrooms or '?'}ba"
 
     return ModuleResult(
         score=max(0, min(score, 25)),
         max_score=25,
         status="completed",
-        details=f"Checked Zillow ({'found' if zillow_found else 'not found'}) and Realtor.com ({'found' if realtor_found else 'not found'})",
+        details=details,
         sub_flags=flags,
     )
 
@@ -243,6 +256,14 @@ def _score_images(vision_result: VisionAnalysisResult) -> ModuleResult:
         flags.append("No images provided in listing")
         return ModuleResult(score=score, max_score=20, status="completed", details="No images to analyze", sub_flags=flags)
 
+    # If images were present but none were analyzed, Vision API likely failed
+    if not vision_result.assessments:
+        return ModuleResult(
+            score=0, max_score=20, status="error",
+            details="Image analysis could not be completed",
+            sub_flags=[],
+        )
+
     if vision_result.image_count <= 2:
         score += 3
         flags.append(f"Only {vision_result.image_count} image(s) — unusually few for a rental listing")
@@ -323,6 +344,7 @@ def _collect_flags(modules: ModuleBreakdown) -> list[Flag]:
 
 def _collect_evidence(
     nlp_result: NLPExtractionResult,
+    rentcast_property: RentcastPropertyResult,
     zillow_result: ZillowPropertyResult,
     realtor_result: RealtorPropertyResult,
     market_data: RentcastMarketData,
@@ -331,7 +353,35 @@ def _collect_evidence(
     """Collect evidence from all data sources."""
     evidence = []
 
-    # Zillow evidence
+    # Rentcast property evidence (primary source)
+    if rentcast_property.found:
+        if rentcast_property.listed_rent:
+            status = rentcast_property.listing_status or "Unknown"
+            evidence.append(Evidence(
+                source="rentcast",
+                label="MLS Rental Listing",
+                value=f"${rentcast_property.listed_rent:,.0f}/mo ({status})",
+            ))
+        if rentcast_property.agent_name:
+            evidence.append(Evidence(
+                source="rentcast",
+                label="Listing Agent (MLS)",
+                value=f"{rentcast_property.agent_name}",
+            ))
+        if rentcast_property.mls_number:
+            evidence.append(Evidence(
+                source="rentcast",
+                label="MLS Number",
+                value=rentcast_property.mls_number,
+            ))
+        if rentcast_property.last_sale_price:
+            evidence.append(Evidence(
+                source="rentcast",
+                label="Last Sale Price",
+                value=f"${rentcast_property.last_sale_price:,.0f}",
+            ))
+
+    # Zillow evidence (secondary)
     if zillow_result.found:
         evidence.append(Evidence(
             source="zillow",
@@ -339,21 +389,8 @@ def _collect_evidence(
             value=zillow_result.listing_status or "Unknown",
             url=zillow_result.zillow_url,
         ))
-        if zillow_result.listed_price:
-            evidence.append(Evidence(
-                source="zillow",
-                label="Zillow Listed Price",
-                value=f"${zillow_result.listed_price:,.0f}",
-                url=zillow_result.zillow_url,
-            ))
-        if zillow_result.agent_name:
-            evidence.append(Evidence(
-                source="zillow",
-                label="Zillow Listing Agent",
-                value=zillow_result.agent_name,
-            ))
 
-    # Realtor.com evidence
+    # Realtor.com evidence (secondary)
     if realtor_result.found:
         evidence.append(Evidence(
             source="realtor",
@@ -361,15 +398,8 @@ def _collect_evidence(
             value=realtor_result.listing_status or "Unknown",
             url=realtor_result.listing_url,
         ))
-        if realtor_result.listed_price:
-            evidence.append(Evidence(
-                source="realtor",
-                label="Realtor.com Listed Price",
-                value=f"${realtor_result.listed_price:,.0f}",
-                url=realtor_result.listing_url,
-            ))
 
-    # Rentcast evidence
+    # Rentcast market evidence
     if market_data.median_rent:
         evidence.append(Evidence(
             source="rentcast",
@@ -430,17 +460,20 @@ async def analyze_listing(request: AnalyzeRequest, client: httpx.AsyncClient) ->
     if nlp_result.full_address:
         async def _address_task():
             try:
+                # Primary: Rentcast property lookup (working API)
+                rc_res = await rentcast.lookup_property(nlp_result.full_address, client)
+                # Secondary: Zillow + Realtor (may fail if API key expired)
                 zillow_res = await zillow.search_property(nlp_result.full_address, client)
                 realtor_res = await realtor.search_property(nlp_result.full_address, nlp_result.zip_code, client)
-                return zillow_res, realtor_res
+                return rc_res, zillow_res, realtor_res
             except Exception as e:
                 logger.error(f"Address lookup failed: {e}")
                 api_errors.append(f"Address lookup failed: {str(e)}")
-                return ZillowPropertyResult(), RealtorPropertyResult()
+                return RentcastPropertyResult(), ZillowPropertyResult(), RealtorPropertyResult()
         tasks["address"] = _address_task()
     else:
         async def _skip_address():
-            return ZillowPropertyResult(), RealtorPropertyResult()
+            return RentcastPropertyResult(), ZillowPropertyResult(), RealtorPropertyResult()
         tasks["address"] = _skip_address()
 
     # Price anomaly (only if rent and zip extracted)
@@ -489,9 +522,9 @@ async def analyze_listing(request: AnalyzeRequest, client: httpx.AsyncClient) ->
     # Unpack results (handle exceptions from gather)
     if isinstance(results[0], Exception):
         api_errors.append(f"Address lookup error: {results[0]}")
-        zillow_result, realtor_result = ZillowPropertyResult(), RealtorPropertyResult()
+        rentcast_property, zillow_result, realtor_result = RentcastPropertyResult(), ZillowPropertyResult(), RealtorPropertyResult()
     else:
-        zillow_result, realtor_result = results[0]
+        rentcast_property, zillow_result, realtor_result = results[0]
 
     if isinstance(results[1], Exception):
         api_errors.append(f"Price data error: {results[1]}")
@@ -507,7 +540,7 @@ async def analyze_listing(request: AnalyzeRequest, client: httpx.AsyncClient) ->
 
     # ── Phase 3: Compute module scores ───────────────────────────────────────
     address_module = _score_address_lookup(
-        zillow_result, realtor_result, nlp_result.rent_amount, request.facebook_poster_name
+        rentcast_property, zillow_result, realtor_result, nlp_result.rent_amount, request.facebook_poster_name
     )
     price_module = _score_price_anomaly(
         market_data, zillow_rent, nlp_result.rent_amount, nlp_result.bedrooms
@@ -543,7 +576,7 @@ async def analyze_listing(request: AnalyzeRequest, client: httpx.AsyncClient) ->
     )
 
     flags = _collect_flags(modules)
-    evidence = _collect_evidence(nlp_result, zillow_result, realtor_result, market_data, vision_result)
+    evidence = _collect_evidence(nlp_result, rentcast_property, zillow_result, realtor_result, market_data, vision_result)
 
     extracted_data = ExtractedData(
         rent=nlp_result.rent_amount,

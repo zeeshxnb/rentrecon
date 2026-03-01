@@ -99,5 +99,5 @@ async def analyze_images(image_urls: list[str]) -> VisionAnalysisResult:
         return VisionAnalysisResult(
             overall_risk_score=0,
             image_count=len(urls_to_analyze),
-            summary=f"Vision analysis failed: {str(e)}",
+            summary="",
         )
