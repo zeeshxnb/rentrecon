@@ -41,15 +41,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === "CLEAR_ANALYSIS") {
-    chrome.storage.local.remove(
-      ["lastAnalysis", "lastAnalysisTimestamp", "analysisInProgress"],
-      () => {
-        sendResponse({ success: true });
-      }
-    );
-    return true;
-  }
 });
 
 /**

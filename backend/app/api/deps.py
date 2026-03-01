@@ -1,5 +1,4 @@
 import httpx
-from contextlib import asynccontextmanager
 
 _client: httpx.AsyncClient | None = None
 

@@ -28,14 +28,3 @@ def check_rate_limit(api_name: str) -> bool:
 
     counter["count"] += 1
     return True
-
-
-def get_usage(api_name: str) -> dict:
-    counter = _counters[api_name]
-    limit = DAILY_LIMITS.get(api_name, 100)
-    return {
-        "api": api_name,
-        "used": counter["count"],
-        "limit": limit,
-        "remaining": max(0, limit - counter["count"]),
-    }

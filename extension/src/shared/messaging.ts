@@ -23,10 +23,3 @@ export function getLastAnalysis(): Promise<AnalysisState> {
   });
 }
 
-export function clearAnalysis(): Promise<void> {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: "CLEAR_ANALYSIS" }, () => {
-      resolve();
-    });
-  });
-}
