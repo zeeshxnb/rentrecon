@@ -11,6 +11,9 @@ const CONTAINER_CLASS = "recon-container";
 const BUTTON_CLASS = "recon-analyze-btn";
 const RESULTS_CLASS = "recon-results";
 
+// Cache results per listing URL so re-analyzing doesn't hit APIs again
+const resultCache = new Map();
+
 export function initInjector() {
   tryInject();
 
@@ -45,6 +48,7 @@ export function initInjector() {
 
 function cleanup() {
   document.querySelectorAll(`.${CONTAINER_CLASS}`).forEach(el => el.remove());
+  // Keep cache (results stay valid for the session)
 }
 
 function tryInject() {
@@ -215,6 +219,14 @@ function injectContainer(anchorEl) {
     e.stopPropagation();
     e.preventDefault();
 
+    const cacheKey = window.location.pathname;
+
+    // Return cached result instantly if available
+    if (resultCache.has(cacheKey)) {
+      showResults(container, btn, separator, resultCache.get(cacheKey));
+      return;
+    }
+
     btn.disabled = true;
     btn.querySelector("span").textContent = "Analyzing...";
     btn.classList.add("recon-loading");
@@ -234,6 +246,7 @@ function injectContainer(anchorEl) {
           }
 
           if (response && response.success) {
+            resultCache.set(cacheKey, response.data);
             showResults(container, btn, separator, response.data);
           } else {
             btn.disabled = false;
@@ -299,6 +312,23 @@ function showResults(container, btn, separator, data) {
   box.querySelector(".recon-close").addEventListener("click", (e) => {
     e.stopPropagation();
     e.preventDefault();
-    container.remove();
+    box.remove();
+
+    // Show a "View Recon Score" button to re-open cached results
+    const viewBtn = document.createElement("button");
+    viewBtn.className = BUTTON_CLASS;
+    viewBtn.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px; vertical-align: middle;">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <span>View Recon Score</span>`;
+    container.insertBefore(viewBtn, separator);
+
+    viewBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      viewBtn.remove();
+      showResults(container, viewBtn, separator, data);
+    });
   });
 }
