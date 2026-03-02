@@ -1,6 +1,6 @@
 # Rent Recon
 
-IrvineHacks 2026 Project by Zeeshan, Andrew, Jason
+IrvineHacks 2026 Project by Zeeshan, Andrew, Jason.
 
 ## Overview
 
